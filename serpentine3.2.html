@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>serpentine.iii</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            background-color: #050505;
+            color: #e5e5e5;
+            margin: 0;
+            overflow-x: hidden;
+            /* Four Pointed Star Cursor */
+            cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z' fill='white'/%3E%3C/svg%3E") 12 12, crosshair;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050505; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333; 
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase to global scope for React component to use
+        window.firebaseModules = { 
+            initializeApp, 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged,
+            getFirestore, 
+            collection, 
+            addDoc, 
+            onSnapshot, 
+            serverTimestamp 
+        };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Firebase Initialization Helper ---
+        const useFirebase = () => {
+            const [db, setDb] = useState(null);
+            const [user, setUser] = useState(null);
+            const [appId, setAppId] = useState(null);
+
+            useEffect(() => {
+                const init = async () => {
+                    if (window.firebaseModules && typeof __firebase_config !== 'undefined') {
+                        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore } = window.firebaseModules;
+                        
+                        try {
+                            const firebaseConfig = JSON.parse(__firebase_config);
+                            const app = initializeApp(firebaseConfig);
+                            const auth = getAuth(app);
+                            const firestore = getFirestore(app);
+                            
+                            const currentAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                            setAppId(currentAppId);
+
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+
+                            onAuthStateChanged(auth, (u) => {
+                                setUser(u);
+                                if (u) setDb(firestore);
+                            });
+
+                        } catch (error) {
+                            console.error("Firebase Init Error:", error);
+                        }
+                    }
+                };
+                init();
+            }, []);
+
+            return { db, user, appId };
+        };
+
+        // --- Icon Definitions ---
+        const IconBase = ({ size = 24, className = "", strokeWidth = 2, children, ...props }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width={size} 
+                height={size} 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth={strokeWidth} 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
+                {...props}
+            >
+                {children}
+            </svg>
+        );
+
+        const ArrowRight = (props) => (
+            <IconBase {...props}><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></IconBase>
+        );
+        const Circle = (props) => (
+            <IconBase {...props}><circle cx="12" cy="12" r="10" /></IconBase>
+        );
+        const Square = (props) => (
+            <IconBase {...props}><rect width="18" height="18" x="3" y="3" rx="2" /></IconBase>
+        );
+        const Triangle = (props) => (
+            <IconBase {...props}><path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /></IconBase>
+        );
+        const Diamond = (props) => (
+            <IconBase {...props}><polygon points="12 2 22 12 12 22 2 12 12 2" /></IconBase>
+        );
+        const FivePointStar = (props) => (
+            <IconBase {...props}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></IconBase>
+        );
+        const ArrowUpRight = (props) => (
+            <IconBase {...props}><path d="M7 7h10v10" /><path d="M7 17 17 7" /></IconBase>
+        );
+        const FourPointStar = ({ size = 24, className = "", strokeWidth = 2 }) => (
+            <IconBase size={size} className={className} strokeWidth={strokeWidth}>
+                <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+            </IconBase>
+        );
+        const PearlIcon = ({ size = 24, className = "", strokeWidth = 2 }) => (
+            <IconBase size={size} className={className} strokeWidth={strokeWidth}>
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="4" />
+            </IconBase>
+        );
+        const LabyrinthIcon = ({ size = 24, className = "", strokeWidth = 2 }) => (
+            <IconBase size={size} className={className} strokeWidth={strokeWidth}>
+                <path d="M12 2v20" />
+                <path d="M3.34 7l17.32 10" />
+                <path d="M3.34 17l17.32 -10" />
+            </IconBase>
+        );
+        const Menu = (props) => (
+            <IconBase {...props}><line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" /></IconBase>
+        );
+        const X = (props) => (
+            <IconBase {...props}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></IconBase>
+        );
+
+        // --- Application Components ---
+
+        const Clock = () => {
+            const [time, setTime] = useState(new Date());
+
+            useEffect(() => {
+                const timer = setInterval(() => setTime(new Date()), 1000);
+                return () => clearTimeout(timer);
+            }, []);
+
+            return (
+                <div className="font-mono text-base text-neutral-500 tracking-widest mt-6 lowercase">
+                    {time.toLocaleTimeString()}
+                </div>
+            );
+        };
+
+        const TypewriterText = ({ text, delay = 0, speed = 15, className = "", as: Component = 'p' }) => {
+            const [displayedText, setDisplayedText] = useState("");
+            const [isStarted, setIsStarted] = useState(false);
+
+            useEffect(() => {
+                const startTimeout = setTimeout(() => {
+                    setIsStarted(true);
+                }, delay);
+                return () => clearTimeout(startTimeout);
+            }, [delay]);
+
+            useEffect(() => {
+                if (!isStarted) return;
+                
+                let i = 0;
+                const intervalId = setInterval(() => {
+                    if (i < text.length) {
+                        setDisplayedText(text.substring(0, i + 1));
+                        i++;
+                    } else {
+                        clearInterval(intervalId);
+                    }
+                }, speed);
+
+                return () => clearInterval(intervalId);
+            }, [isStarted, text, speed]);
+
+            return (
+                <Component className={className}>
+                    {displayedText}
+                    <span className="animate-pulse text-white">_</span>
+                </Component>
+            );
+        };
+
+        const StarField = ({ galaxies = [] }) => {
+            const [stars, setStars] = useState([]);
+            const [lines, setLines] = useState([]);
+            const [shootingStars, setShootingStars] = useState([]);
+
+            useEffect(() => {
+                const count = 350; 
+                const symbols = ['.', '*', '°', '·', '+', '×', '•', '`', '\''];
+                
+                const newStars = Array.from({ length: count }).map((_, i) => {
+                    const isSymbol = Math.random() > 0.9; 
+                    let type = 'char';
+                    let content = symbols[Math.floor(Math.random() * symbols.length)];
+
+                    if (isSymbol) {
+                        type = 'icon';
+                        const icons = ['triangle', 'circle', 'star', 'pearl', 'labyrinth', 'square', 'diamond', 'five-point-star'];
+                        content = icons[Math.floor(Math.random() * icons.length)];
+                    }
+
+                    return {
+                        id: i,
+                        left: Math.random() * 100,
+                        top: Math.random() * 100,
+                        opacity: Math.random() * 0.5 + 0.2,
+                        symbol: content,
+                        type: type,
+                        size: Math.random() > 0.5 ? 'text-[8px]' : 'text-[10px]'
+                    };
+                });
+
+                const newLines = [];
+                const connectableStars = newStars.filter((_, i) => i < 150); 
+
+                connectableStars.forEach((star, i) => {
+                    connectableStars.forEach((neighbor, j) => {
+                        if (i < j) { 
+                            const dx = star.left - neighbor.left;
+                            const dy = star.top - neighbor.top;
+                            const dist = Math.sqrt(dx * dx + dy * dy); 
+
+                            if (dist < 6 && Math.random() > 0.92) {
+                                newLines.push({
+                                    id: `line-${i}-${j}`,
+                                    x1: star.left,
+                                    y1: star.top,
+                                    x2: neighbor.left,
+                                    y2: neighbor.top,
+                                    opacity: Math.min(star.opacity, neighbor.opacity) * 0.4 
+                                });
+                            }
+                        }
+                    });
+                });
+
+                setStars(newStars);
+                setLines(newLines);
+            }, []);
+
+            useEffect(() => {
+                const spawnShootingStar = () => {
+                    const id = Date.now();
+                    const startX = Math.random() < 0.5 ? Math.random() * 100 : 0; 
+                    const startY = startX === 0 ? Math.random() * 50 : 0; 
+                    const angle = 45; 
+                    const duration = Math.random() * 1 + 0.8; 
+
+                    setShootingStars(prev => [...prev, { id, startX, startY, angle, duration }]);
+
+                    setTimeout(() => {
+                        setShootingStars(prev => prev.filter(s => s.id !== id));
+                    }, duration * 1000);
+                };
+
+                const loop = () => {
+                    spawnShootingStar();
+                    const nextDelay = Math.random() * 9000 + 6000; 
+                    setTimeout(loop, nextDelay);
+                };
+
+                const initialTimeout = setTimeout(loop, 2000);
+                return () => clearTimeout(initialTimeout);
+            }, []);
+
+            return (
+                <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                        {lines.map((line) => (
+                            <line 
+                                key={line.id}
+                                x1={`${line.x1}%`} 
+                                y1={`${line.y1}%`} 
+                                x2={`${line.x2}%`} 
+                                y2={`${line.y2}%`} 
+                                stroke="white" 
+                                strokeWidth="0.5" 
+                                style={{ opacity: line.opacity }}
+                            />
+                        ))}
+                    </svg>
+
+                    {stars.map((star) => (
+                        <div
+                            key={star.id}
+                            className={`absolute text-white font-mono ${star.size} flex items-center justify-center`}
+                            style={{
+                                left: `${star.left}%`,
+                                top: `${star.top}%`,
+                                opacity: star.opacity,
+                            }}
+                        >
+                            {star.type === 'char' ? (
+                                star.symbol
+                            ) : (
+                                <React.Fragment>
+                                    {star.symbol === 'triangle' && <Triangle size={8} strokeWidth={1} />}
+                                    {star.symbol === 'circle' && <Circle size={8} strokeWidth={1} />}
+                                    {star.symbol === 'square' && <Square size={8} strokeWidth={1} />}
+                                    {star.symbol === 'star' && <FourPointStar size={8} strokeWidth={1} />}
+                                    {star.symbol === 'pearl' && <PearlIcon size={8} strokeWidth={1} />}
+                                    {star.symbol === 'labyrinth' && <LabyrinthIcon size={8} strokeWidth={1} />}
+                                    {star.symbol === 'diamond' && <Diamond size={8} strokeWidth={1} />}
+                                    {star.symbol === 'five-point-star' && <FivePointStar size={8} strokeWidth={1} />}
+                                </React.Fragment>
+                            )}
+                        </div>
+                    ))}
+
+                    {shootingStars.map(s => (
+                        <div
+                            key={s.id}
+                            className="absolute h-[1px] origin-left"
+                            style={{
+                                left: `${s.startX}%`,
+                                top: `${s.startY}%`,
+                                width: '150px',
+                                background: 'linear-gradient(90deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 100%)',
+                                transform: `rotate(${s.angle}deg)`,
+                                animation: `shooting-star-anim ${s.duration}s linear forwards`
+                            }}
+                        />
+                    ))}
+
+                    {/* Galaxy Messages */}
+                    {galaxies.map(g => (
+                        <div key={g.id} 
+                             className="absolute text-xs font-mono text-white/50 whitespace-nowrap pointer-events-none"
+                             style={{
+                                 left: `${g.startX}%`,
+                                 bottom: '15%',
+                                 animation: `galaxy-drift 10s ease-out forwards`,
+                                 opacity: 0,
+                                 transformOrigin: 'center'
+                             }}>
+                             {g.text}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        const Navigation = ({ activePage, navigate, onLogoClick }) => {
+            const [isOpen, setIsOpen] = useState(false);
+
+            const handleNav = (page) => {
+                if (page.startsWith('http')) {
+                    window.open(page, '_blank');
+                    setIsOpen(false);
+                } else {
+                    navigate(page);
+                    setIsOpen(false);
+                }
+            };
+
+            const navItems = [
+                { id: 'home', label: 'index' },
+                { id: 'trio', label: 'the trio' },
+                { id: 'consort', label: 'the consort' },
+                { id: 'art', label: 'the art' },
+                { id: 'artists', label: 'the artists' },
+                { id: 'poet', label: 'serpentinepoet' },
+                { id: 'https://www.serpentine-iii.myshopify.com/password', label: 'atelier' },
+                { id: 'pearl', label: 'pearl' },
+                { id: 'labyrinth', label: 'the labyrinth' },
+                { id: 'guestbook', label: 'guestbook' },
+                { id: 'contact', label: 'contact' },
+            ];
+
+            return (
+                <nav className="fixed top-0 left-0 w-full z-50 text-white">
+                    <div className="relative flex justify-between items-center p-4 md:p-6 border-b border-white/20 bg-black/80 backdrop-blur-sm z-50">
+                        <button 
+                            onClick={onLogoClick}
+                            className="font-mono text-sm md:text-base tracking-widest hover:opacity-70 transition-opacity lowercase"
+                        >
+                            serpentine.iii
+                        </button>
+
+                        <button 
+                            onClick={() => setIsOpen(!isOpen)}
+                            className="font-mono text-xs tracking-widest hover:opacity-70 transition-opacity lowercase flex items-center gap-2"
+                        >
+                            <span>discover</span>
+                            <span>{isOpen ? '[-]' : '[+]'}</span>
+                        </button>
+                    </div>
+
+                    <div 
+                        className={`absolute top-full left-0 w-full bg-black/95 border-b border-white/20 backdrop-blur-md transition-all duration-500 ease-in-out overflow-hidden flex flex-col items-end justify-center ${
+                            isOpen ? 'max-h-[500px] opacity-100 py-6' : 'max-h-0 opacity-0 py-0'
+                        }`}
+                    >
+                        <div className="flex flex-col items-end space-y-3 px-4 md:px-6 w-full">
+                            {navItems.map((item) => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => handleNav(item.id)}
+                                    className={`font-mono text-sm tracking-widest transition-all duration-300 hover:translate-x-[-8px] ${
+                                        activePage === item.id 
+                                            ? 'opacity-100 text-white' 
+                                            : 'opacity-40 hover:opacity-100 hover:text-white'
+                                    }`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </nav>
+            );
+        };
+
+        const FadeIn = ({ children, delay = 0 }) => {
+            const [isVisible, setIsVisible] = useState(false);
+
+            useEffect(() => {
+                const timer = setTimeout(() => setIsVisible(true), delay);
+                return () => clearTimeout(timer);
+            }, [delay]);
+
+            return (
+                <div className={`transition-all duration-1000 ease-out ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                    {children}
+                </div>
+            );
+        };
+
+        // --- GUESTBOOK COMPONENT ---
+        const Guestbook = ({ onExit, db, user, appId, addGalaxy }) => {
+            const [username, setUsername] = useState("");
+            const [inputUsername, setInputUsername] = useState("");
+            const [messages, setMessages] = useState([]);
+            const [newMessage, setNewMessage] = useState("");
+            const messagesEndRef = useRef(null);
+
+            useEffect(() => {
+                if (!db || !appId || !user) return;
+
+                const q = window.firebaseModules.collection(db, 'artifacts', appId, 'public', 'data', 'guestbook');
+                
+                const unsubscribe = window.firebaseModules.onSnapshot(q, (snapshot) => {
+                    const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    msgs.sort((a, b) => {
+                        const timeA = a.timestamp ? a.timestamp.seconds : 0;
+                        const timeB = b.timestamp ? b.timestamp.seconds : 0;
+                        return timeA - timeB; 
+                    });
+                    setMessages(msgs);
+                }, (error) => {
+                    console.error("Snapshot error:", error);
+                });
+
+                return () => unsubscribe();
+            }, [db, appId, user]);
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [messages]);
+
+            const handleUsernameSubmit = (e) => {
+                if (e.key === 'Enter' && inputUsername.trim()) {
+                    setUsername(inputUsername.trim());
+                }
+            };
+
+            const sendMessage = async (e) => {
+                if ((e.key === 'Enter' || e.type === 'click') && newMessage.trim() && db) {
+                    try {
+                        const { collection, addDoc, serverTimestamp } = window.firebaseModules;
+                        
+                        // Fire "galaxy" animation
+                        addGalaxy(newMessage.trim());
+
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'guestbook'), {
+                            user: username,
+                            text: newMessage.trim(),
+                            timestamp: serverTimestamp()
+                        });
+                        setNewMessage("");
+                    } catch (err) {
+                        console.error("Error sending message:", err);
+                        alert("Error sending message. Please try again.");
+                    }
+                }
+            };
+
+            if (!username) {
+                return (
+                    <div className="flex-grow flex flex-col items-center justify-center text-center relative z-20 h-screen w-full">
+                        <h2 className="font-mono text-xl text-white lowercase tracking-widest mb-8">identify_yourself</h2>
+                        <input 
+                            type="text" 
+                            value={inputUsername}
+                            onChange={(e) => setInputUsername(e.target.value)}
+                            onKeyDown={handleUsernameSubmit}
+                            placeholder="alias"
+                            className="bg-transparent border-b border-white/30 text-center font-mono text-lg text-white placeholder-white outline-none pb-2 w-48 focus:border-white transition-all lowercase"
+                            autoFocus
+                        />
+                        <button 
+                            onClick={() => setUsername(inputUsername)} 
+                            className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center mt-8"
+                        >
+                            <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-300 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
+                                [ enter ]
+                            </span>
+                            <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
+                        </button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex flex-col h-screen w-full pt-12 pb-8 px-4 md:px-12 relative z-20 max-w-4xl mx-auto">
+                     <div className="absolute top-8 right-0 pr-4 md:pr-0">
+                        <button onClick={onExit} className="text-[10px] text-red-400 hover:text-red-300 font-mono tracking-widest lowercase transition-opacity opacity-70 hover:opacity-100">[ disconnect ]</button>
+                    </div>
+
+                    <div className="flex-grow overflow-y-auto mb-4 pr-2 space-y-4 pt-12">
+                        {messages.map((msg) => (
+                            <div key={msg.id} className="flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                <span className="text-[10px] text-neutral-400 font-mono lowercase mb-1">
+                                    {msg.user} :: {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                                </span>
+                                <span className="text-sm md:text-base text-white font-mono lowercase bg-white/5 p-3 border-l border-white/20">
+                                    {msg.text}
+                                </span>
+                            </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </div>
+                    
+                    <div className="w-full flex items-end gap-4 border-t border-white/10 pt-4">
+                        <span className="text-neutral-300 font-mono text-xs pb-3">&gt;</span>
+                        <input 
+                            type="text" 
+                            value={newMessage}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            onKeyDown={sendMessage}
+                            placeholder="leave a trace..."
+                            className="flex-grow bg-transparent font-mono text-sm text-white placeholder-white outline-none py-2"
+                        />
+                        <button 
+                            onClick={sendMessage}
+                            className="group relative px-6 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
+                        >
+                            <span className="relative z-10 font-mono text-sm tracking-[0.2em] text-neutral-300 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
+                                [ send ]
+                            </span>
+                            <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const PearlExperience = ({ onExit }) => {
+            const [screen, setScreen] = useState('intro');
+            const [storyKey, setStoryKey] = useState(null);
+            const [currentTime, setCurrentTime] = useState("");
+            const [typedLines, setTypedLines] = useState([]);
+
+            const stories = {
+                collision: {
+                    title: "The Collision",
+                    content: `It is said that \nWhen Theiaa struck our Earth a debris ring was formed \nThe collision of two things \nWill always leave \nDetritus in its wake \nThe matter collected \nFormed the Moon \nThe spiritual force of this rock \nMade of things falling apart \nDirects the tides \nIn water \nAnd women \nWe are made up from these clashings\n\n(me)`
+                },
+                gravity: {
+                    title: "Gravity",
+                    content: `Gravity. \nGenerally what we expect of others depends on the effect of gravity upon ourselves, what we receive from them depends on the effect of gravity upon them. Sometimes (by chance) the two coincide, often they do not. \n(Gravity and Grace)\n\nI smashed my wings \nAgainst the rain-soaked deck \nAnd was happy you lifted me \nInto your safe fingers and palms \nIt not too disgusted, hold me\nClose forever keenly \n\n(Pearl)`
+                },
+                circle: {
+                    title: "The Circle",
+                    content: `Time is a flat circle \nYou look at a newspaper \nFrom 100 years ago \nA 4th century painting on a grave \nWe are telling the same stories \n(me)\n\nEach day up here I am fiercely addressed \nBy the tips of trees; said all I could \nWhile heifers moaned in the stalls, clopping \nOf hooves my steaming, shitting \nBeast accompaniment. And these giant clouds.\nPity? Put it in the slurry with the rest of your woes \nI am Pearl, queen of the dale \n\n(Pearl)`
+                },
+                fever: {
+                    title: "The Fever",
+                    content: `How bright and sudden the dog rose,\nBriefly touched by dew, flaming \nBetween the deep emerald and smoky blue \n\nWhere are you, Pearl, is \nA fantastic freak bruise which hurts the world. \n\nPearl, I’m singing Fever to you \nBut still in the bland auditorium the stupid voices explode. \n\nShe opens her swan mouth and rain pours in from north and south and west \n\n(Pearl)`
+                },
+                parasite: {
+                    title: "The Parasite",
+                    content: `Men owe us what we imagine they will give us. We must forgive them this debt. \nTo accept the fact that they are other than the creatures of our imagination is to imitate the renunciation of God. \n(Gravity and Grace)\n\nWhat does a government do? Can it make you speak? \nI leak truth like a wound, sore not seen to. \nCall me a scab if you wish, I’m still plain Pearl \n\nNothing is owned by humans. It is an illusion nightmare. \nPearl: beautiful lustre, highly prized gem , \nPrecious one, finest example of its kind, \nDewdrop, tear of Mary, reduced by attrition\nTo small-rounded grains\nIs it natural to want to cut off the head of a lover when he takes too long making basic decisions?\n\nI also am other than what I imagine myself to be. To know this is forgiveness. \n(Gravity and Grace)\n\nFor now\nI’ll be the Pearl \nRobe my parasite in things that shine \nSpin circles on a bed of glowing moon \nThe parasite is beautiful \nThe parasite wears a mother of Pearl cloak\n(Me)`
+                }
+            };
+
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false }));
+                }, 1000);
+                return () => clearInterval(interval);
+            }, []);
+
+            useEffect(() => {
+                if (screen === 'content' && storyKey && stories[storyKey]) {
+                    const fullText = stories[storyKey].content;
+                    const sourceLines = fullText.split('\n');
+                    setTypedLines([]); 
+                    let lineIdx = 0;
+                    let charIdx = 0;
+                    let currentLines = [];
+                    let timeoutId;
+
+                    const type = () => {
+                        if (lineIdx >= sourceLines.length) return;
+                        const lineStr = sourceLines[lineIdx];
+                        if (charIdx === 0) {
+                           const maxMargin = window.innerWidth < 600 ? 20 : 40; 
+                           const randomMargin = Math.floor(Math.random() * maxMargin);
+                           currentLines = [...currentLines, { text: '', margin: randomMargin }];
+                        }
+                        if (lineStr.length === 0) {
+                            currentLines[currentLines.length - 1].text = '\u00A0'; 
+                            lineIdx++;
+                            charIdx = 0;
+                            setTypedLines([...currentLines]);
+                            timeoutId = setTimeout(type, 50);
+                            return;
+                        }
+                        const char = lineStr[charIdx];
+                        currentLines[currentLines.length - 1].text += char;
+                        setTypedLines([...currentLines]);
+                        charIdx++;
+                        if (charIdx >= lineStr.length) {
+                            lineIdx++;
+                            charIdx = 0;
+                            timeoutId = setTimeout(type, 100); 
+                        } else {
+                            timeoutId = setTimeout(type, Math.random() * 30 + 10);
+                        }
+                    };
+                    type();
+                    return () => clearTimeout(timeoutId);
+                }
+            }, [screen, storyKey]);
+
+            const colorizeText = (text) => {
+                const waterWords = ['pearl', 'pearls', 'water', 'waters', 'rain', 'raining', 'sea', 'seas', 'ocean', 'oceans', 'tide', 'tides', 'wave', 'waves', 'drown', 'drowned', 'tear', 'tears', 'dew', 'blue', 'flood', 'swim', 'liquid', 'pool', 'lake', 'lakes', 'river', 'rivers', 'drop', 'drops', 'storm', 'storms'];
+                const natureWords = ['nature', 'tree', 'trees', 'rock', 'rocks', 'forest', 'wood', 'woods', 'leaf', 'leaves', 'grass', 'green', 'root', 'roots', 'bloom', 'rose', 'roses', 'stem', 'earth', 'moss', 'moon', 'flower', 'flowers', 'petal', 'petals', 'stone', 'stones', 'plant', 'plants'];
+                const nightmareWords = ['nightmare', 'nightmares', 'bad', 'wound', 'wounds', 'blood', 'bleeding', 'red', 'kill', 'die', 'death', 'dead', 'pain', 'hurt', 'hurts', 'scar', 'scars', 'bruise', 'bruises', 'fever', 'burn', 'cut', 'cuts', 'scream', 'screams', 'scab', 'scabs', 'sore', 'sores', 'lustre'];
+
+                let parts = text.split(/(\b\w+\b)/g);
+                return parts.map((part, index) => {
+                    const lower = part.toLowerCase();
+                    if (waterWords.includes(lower)) return <span key={index} className="text-[#add8e6] drop-shadow-[0_0_5px_rgba(173,216,230,0.2)]">{part}</span>;
+                    if (natureWords.includes(lower)) return <span key={index} className="text-[#90ee90] drop-shadow-[0_0_5px_rgba(144,238,144,0.2)]">{part}</span>;
+                    if (nightmareWords.includes(lower)) return <span key={index} className="text-[#ff6666] drop-shadow-[0_0_5px_rgba(255,102,102,0.2)]">{part}</span>;
+                    return part;
+                });
+            };
+
+            return (
+                <div className="min-h-screen w-full text-[#e0e0e0] font-mono flex flex-col p-4 md:p-8 relative z-20" 
+                     style={{ cursor: `url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z' fill='white'/%3E%3C/svg%3E") 12 12, crosshair` }}>
+                  
+                  {screen === 'intro' && (
+                    <div className="flex-grow flex flex-col items-center justify-center text-center relative z-10">
+                      <TypewriterText 
+                        text="pearl"
+                        as="h1"
+                        className="font-mono text-xl md:text-2xl tracking-[0.3em] text-white lowercase mb-8"
+                        speed={150}
+                        delay={200}
+                      />
+                      <p className="text-[#888888] text-base mb-16 lowercase border-b-2 border-[#e0e0e0] pb-2 inline-block">by purdey williams</p>
+                      <button 
+                        onClick={() => setScreen('menu')} 
+                        className="group relative px-8 py-2 transition-all duration-500 bg-transparent"
+                      >
+                        <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-400 group-hover:text-black transition-colors duration-500 lowercase">
+                          [ initialize ]
+                        </span>
+                        <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
+                      </button>
+                    </div>
+                  )}
+
+                  {screen === 'menu' && (
+                    <div className="flex-grow flex flex-col items-center pt-[10vh] relative z-10 w-full max-w-2xl mx-auto">
+                      <div className="w-full border-b-2 border-[#e0e0e0] mb-8 pb-4 flex flex-col items-center bg-black/30 backdrop-blur-sm">
+                        <h2 className="text-xl text-white">index</h2>
+                        <span className="text-[#888888] text-xs">{currentTime}</span>
+                      </div>
+                      <ul className="w-full max-w-lg list-none">
+                        {Object.keys(stories).map((key, i) => (
+                          <li key={key} onClick={() => { setStoryKey(key); setScreen('content'); }} 
+                              className="p-4 border-b border-[#333333] flex flex-col items-center justify-center cursor-pointer hover:bg-white/15 transition-colors bg-black/20 backdrop-blur-sm mb-2">
+                            <span className="font-bold text-base text-white lowercase">0{i+1}. {stories[key].title}</span>
+                            <span className="text-[#888888] text-xs text-center lowercase">read file</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex gap-4 mt-16 w-full max-w-lg justify-between">
+                         <button onClick={() => setScreen('intro')} className="bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase flex-1 text-sm">
+                          &lt; system_reboot &gt;
+                        </button>
+                        <button onClick={onExit} className="bg-black/50 backdrop-blur-sm border border-[#ff6666] text-[#ff6666] px-6 py-2 hover:bg-[#ff6666] hover:text-black transition-all lowercase flex-1 text-sm">
+                          &lt; exit_pearl &gt;
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {screen === 'content' && (
+                    <div className="flex-grow flex flex-col items-center pt-[5vh] relative z-10 w-full max-w-4xl mx-auto px-4">
+                      <div className="mb-12 w-full flex justify-center">
+                        <h2 className="text-xl font-bold lowercase border-b-4 border-double border-[#e0e0e0] pb-4 text-white inline-block">
+                          {stories[storyKey]?.title}
+                        </h2>
+                      </div>
+                      <div className="text-base min-h-[200px] w-full text-left font-mono leading-relaxed overflow-hidden">
+                         {typedLines.map((lineObj, i) => (
+                            <div key={i} className="mb-2" style={{ marginLeft: `${lineObj.margin}%` }}>
+                              {colorizeText(lineObj.text)}
+                            </div>
+                         ))}
+                      </div>
+                      <button onClick={() => setScreen('menu')} className="mt-16 bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase text-sm">
+                        &lt; return &gt;
+                      </button>
+                    </div>
+                  )}
+                </div>
+            );
+        };
+
+        const NavButton = ({ item, navigate, className = "" }) => (
+            <button
+                onClick={() => {
+                   if (item.external) {
+                       window.open(item.id, '_blank');
+                   } else {
+                       navigate(item.id);
+                   }
+                }}
+                // Removed borders and background-color, keeping hover effects subtle or minimal as requested
+                className={`group transition-all duration-500 relative flex flex-col justify-center items-center ${className}`}
+            >
+                <div className="flex flex-col items-center gap-2">
+                    <div className="text-white opacity-100 transition-opacity group-hover:scale-110 duration-300">{item.icon}</div>
+                    <h3 className="text-xs text-white font-normal tracking-widest text-center lowercase opacity-100 transition-opacity whitespace-nowrap group-hover:text-neutral-300">{item.title}</h3>
+                </div>
+            </button>
+        );
+
+        const Landing = ({ onEnter, onGuestbookAccess }) => {
+            const [password, setPassword] = useState("");
+            const [errorMsg, setErrorMsg] = useState("");
+            const [shake, setShake] = useState(false);
+
+            const handleAttempt = () => {
+                const pass = password.toLowerCase().trim();
+                if (pass === "secrets") {
+                    onEnter();
+                } else if (pass === "hi") {
+                    onGuestbookAccess();
+                } else {
+                    const messages = [
+                        "the stars deny your request",
+                        "a serpent does not hiss at its master", 
+                        "the labyrinth has no entrance for you",
+                        "the pearl remains hidden",
+                        "static noise detected", 
+                        "your frequencies are misaligned",
+                        "gravity denies your ascent",
+                        "the moon is not in alignment",
+                        "you are detritus in the wake",
+                        "the tide has washed away your key",
+                        "a collision of errors detected",
+                        "the debris ring rejects you",
+                        "wings smashed against the deck",
+                        "too disgusted to hold you",
+                        "time is a flat circle, try again",
+                        "fiercely addressed by silence",
+                        "put it in the slurry with your woes",
+                        "moaning heifers block the path",
+                        "the dog rose has not bloomed",
+                        "flaming between emerald and blue",
+                        "a fantastic freak bruise appears",
+                        "stupid voices explode in the auditorium",
+                        "the swan mouth remains closed",
+                        "rain pours in from the wrong direction",
+                        "men owe us what we imagine",
+                        "imitate the renunciation of access",
+                        "leaking truth like a wound",
+                        "call me a scab, but you cannot pass",
+                        "nothing is owned by humans here",
+                        "reduced by attrition to small grains",
+                        "robe your parasite in things that shine"
+                    ];
+                    const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+                    setErrorMsg(randomMsg);
+                    setShake(true);
+                    setTimeout(() => setShake(false), 500);
+                    setPassword("");
+                }
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    handleAttempt();
+                }
+            };
+
+            return (
+                <div className="h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden z-50">
+                    <style>{`
+                        @keyframes spin-slow {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                        }
+                        @keyframes spin-reverse-slow {
+                            from { transform: rotate(360deg); }
+                            to { transform: rotate(0deg); }
+                        }
+                        @keyframes shooting-star-anim {
+                            0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; width: 0; }
+                            10% { width: 150px; }
+                            100% { transform: translateX(400px) translateY(400px) rotate(45deg); opacity: 0; width: 0; }
+                        }
+                        .animate-spin-slow {
+                            animation: spin-slow 60s linear infinite;
+                        }
+                        .animate-spin-reverse-slow {
+                            animation: spin-reverse-slow 60s linear infinite;
+                        }
+                    `}</style>
+                    <StarField />
+                    
+                    {/* Centering Container */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] md:w-[500px] md:h-[500px] z-0 pointer-events-none">
+                        {/* Spinning Ring */}
+                        <div className="w-full h-full rounded-full animate-spin-slow relative">
+                            {/* Icons orbiting */}
+                            
+                            {/* 1. Top (0 deg) */}
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Triangle size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 2. Top Right (~45 deg) */}
+                            <div className="absolute top-[14.6%] right-[14.6%] translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Circle size={20} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 3. Right (90 deg) */}
+                            <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Square size={20} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 4. Bottom Right (~135 deg) */}
+                            <div className="absolute bottom-[14.6%] right-[14.6%] translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><FourPointStar size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 5. Bottom (180 deg) */}
+                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><PearlIcon size={24} strokeWidth={1.5} /></div>
+                            </div>
+
+                             {/* 6. Bottom Left (~225 deg) */}
+                            <div className="absolute bottom-[14.6%] left-[14.6%] -translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Diamond size={20} strokeWidth={1.5} /></div>
+                            </div>
+
+                            {/* 7. Left (270 deg) */}
+                            <div className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><LabyrinthIcon size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 8. Top Left (~315 deg) */}
+                             <div className="absolute top-[14.6%] left-[14.6%] -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><FivePointStar size={24} strokeWidth={1.5} /></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="z-10 flex flex-col items-center gap-8 animate-in fade-in duration-1000 w-full max-w-4xl relative">
+                        <div className="flex flex-col items-center">
+                            <h1 className="font-mono text-xl md:text-2xl tracking-[0.3em] text-white lowercase relative z-10 mr-[-0.3em]">
+                                serpentine.iii
+                            </h1>
+                        </div>
+
+                        <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+                            <div className={`min-h-[1.5rem] text-sm font-mono tracking-widest text-red-400 lowercase transition-opacity duration-300 text-center ${errorMsg ? 'opacity-100' : 'opacity-0'}`}>
+                                {errorMsg || "placeholder"}
+                            </div>
+
+                            <input 
+                                type="password" 
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="password"
+                                className={`bg-transparent border-b ${shake ? 'border-red-500 translate-x-1' : 'border-white/20'} outline-none text-center font-mono text-base tracking-[0.2em] text-white placeholder-neutral-400 py-2 w-48 focus:border-white transition-all duration-200 lowercase`}
+                            />
+                        </div>
+                        
+                        <button 
+                            onClick={handleAttempt}
+                            className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
+                        >
+                            <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-400 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
+                                [ access ]
+                            </span>
+                            <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const SectionPage = ({ title, subtitle, content, icon, date, dateLabel = "established", metadata, navigate }) => (
+            <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 max-w-6xl mx-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                    <div className="lg:col-span-3 lg:border-r border-white/10 lg:pr-8">
+                        <FadeIn delay={100}>
+                            <div className="sticky top-32">
+                                <div className="mb-8 text-white">{icon}</div>
+                                <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase break-words">{title}</h1>
+                                <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">{subtitle}</p>
+                                
+                                <div className="space-y-4 font-mono text-xs text-neutral-500 lowercase">
+                                    <div className="flex justify-between border-b border-white/10 pb-2">
+                                        <span>{dateLabel}</span>
+                                        <span className="text-neutral-300 text-right max-w-[60%] break-words">{date}</span>
+                                    </div>
+                                    {metadata.map((meta, i) => (
+                                        <div key={i} className="flex justify-between border-b border-white/10 pb-2">
+                                            <span>{meta.label}</span>
+                                            <span className="text-neutral-300 text-right max-w-[60%] break-words">{meta.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="mt-12">
+                                    <button 
+                                        onClick={() => navigate('home')}
+                                        className="w-full py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
+                                    >
+                                        [ return ]
+                                    </button>
+                                </div>
+                            </div>
+                        </FadeIn>
+                    </div>
+
+                    <div className="lg:col-span-9">
+                        <FadeIn delay={300}>
+                            <div className="prose prose-invert prose-base max-w-none font-mono lowercase">
+                                {content.map((paragraph, idx) => (
+                                    <p key={idx} className="text-neutral-300 font-light leading-relaxed mb-6 first-letter:text-3xl first-letter:mr-1 first-letter:font-normal">
+                                        {paragraph}
+                                    </p>
+                                ))}
+                            </div>
+                            
+                            <div className="mt-16 pt-8 border-t border-white/10">
+                                <h3 className="font-mono text-sm text-white mb-6 tracking-widest lowercase">:: selected_works_archive</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {[1, 2, 3, 4].map((i) => (
+                                        <div key={i} className="bg-white/5 p-4 hover:bg-white/10 transition-colors cursor-pointer group">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="font-mono text-xs text-neutral-500 lowercase">opus_00{i}</span>
+                                                <ArrowRight size={14} className="text-neutral-500 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                                            </div>
+                                            <div className="h-24 w-full bg-neutral-900 mb-2 flex items-center justify-center overflow-hidden relative">
+                                                <div className={`absolute inset-0 opacity-20 bg-gradient-to-tr from-neutral-800 to-transparent`} />
+                                                <div className="w-16 h-[1px] bg-white/20 rotate-45"></div>
+                                                <div className="w-16 h-[1px] bg-white/20 -rotate-45"></div>
+                                            </div>
+                                            <p className="text-sm text-neutral-300 lowercase">untitled performance {i}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </FadeIn>
+                    </div>
+                </div>
+            </div>
+        );
+
+        const ArtistsPage = ({ navigate }) => (
+            <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 flex flex-col items-center">
+                <FadeIn delay={100}>
+                    <div className="flex flex-col items-center max-w-2xl mx-auto text-center">
+                        <div className="mb-8 text-white"><FivePointStar size={24} /></div>
+                        <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase">the artists</h1>
+                        <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">collective members and contributors</p>
+
+                        <div className="flex flex-col gap-2 font-mono text-xs text-neutral-500 lowercase mb-12">
+                            <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
+                                <span>origin</span>
+                                <span className="text-neutral-300">london, uk</span>
+                            </div>
+                            <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
+                                <span>status</span>
+                                <span className="text-neutral-300">active</span>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-4 text-neutral-300 font-light lowercase text-lg md:text-xl leading-relaxed mb-16">
+                            <span>ozgur kaya</span>
+                            <span>purdey williams</span>
+                            <span>miki piszczorowicz</span>
+                            <span>hope cramsie</span>
+                            <span>deniz dortok</span>
+                            <span>delyth field</span>
+                            <span>lydia walquist</span>
+                            <span>sofia kiviniemi</span>
+                            <span>thomas shorthouse</span>
+                            <span>otto hashmi</span>
+                            <span>anne sutton</span>
+                            <span>louis moisan</span>
+                            <span>ignacy stefanowicz</span>
+                            <span>yena gook</span>
+                        </div>
+
+                        <p className="font-mono text-xs text-neutral-300 tracking-widest lowercase mb-16">...and growing...</p>
+
+                        <button 
+                            onClick={() => navigate('home')}
+                            className="px-8 py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
+                        >
+                            [ return ]
+                        </button>
+                    </div>
+                </FadeIn>
+            </div>
+        );
+
+        const Home = ({ navigate }) => {
+            const items = [
+                { id: 'trio', title: 'the trio', icon: <Triangle size={14} /> },
+                { id: 'consort', title: 'the consort', icon: <Circle size={14} /> },
+                { id: 'art', title: 'the art', icon: <Square size={14} /> },
+                { id: 'poet', title: 'serpentinepoet', icon: <FourPointStar size={14} /> },
+                { id: 'https://www.serpentine-iii.myshopify.com/password', title: 'atelier', icon: <Diamond size={14} />, external: true },
+                { id: 'pearl', title: 'pearl', icon: <PearlIcon size={14} /> },
+                { id: 'labyrinth', title: 'the labyrinth', icon: <LabyrinthIcon size={14} /> },
+                { id: 'artists', title: 'the artists', icon: <FivePointStar size={14} /> }
+            ];
+
+            return (
+                <div className="min-h-screen pt-24 pb-12 px-4 md:px-12 flex flex-col justify-between overflow-hidden">
+                    <div className="flex-grow flex flex-col justify-center max-w-7xl mx-auto w-full relative">
+                        
+                        <div className="relative z-10 flex flex-col items-center justify-center min-h-[60vh] py-12">
+                            
+                            <FadeIn delay={200}>
+                                <div className="max-w-2xl text-left border border-white/20 bg-black/40 backdrop-blur-sm p-8 md:p-12 relative mx-4">
+                                    <div className="absolute -top-1 -left-1 w-3 h-3 border-t border-l border-white"></div>
+                                    <div className="absolute -top-1 -right-1 w-3 h-3 border-t border-r border-white"></div>
+                                    <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b border-l border-white"></div>
+                                    <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b border-r border-white"></div>
+
+                                    <TypewriterText 
+                                        text="serpentine.iii is a london-based collective working at the intersection of music and visual art. the group creates immersive performances in which sound, space, and image evolve together. rather than presenting music within a fixed concert format, serpentine.iii invites audiences into a shared journey - one where the performance environment transforms and responds to the musical narrative in real time."
+                                        className="text-lg md:text-xl font-light leading-relaxed text-neutral-300 lowercase font-mono"
+                                        delay={500}
+                                        speed={20}
+                                    />
+                                </div>
+                            </FadeIn>
+
+                            {/* Orbiting Buttons - Absolute positioning for desktop, Stacked for mobile */}
+                            <style>{`
+                                .planet-motion-1 { animation: orbit-1 35s infinite linear; }
+                                .planet-motion-2 { animation: orbit-2 50s infinite ease-in-out; }
+                                .planet-motion-3 { animation: orbit-3 40s infinite ease-in-out; }
+                                .planet-motion-4 { animation: orbit-4 45s infinite linear; }
+                                .planet-motion-5 { animation: orbit-5 55s infinite ease-in-out; }
+                                .planet-motion-6 { animation: orbit-2 48s infinite ease-in-out reverse; }
+                            `}</style>
+                            
+                            {/* Trio - Top Center */}
+                            <div className="md:absolute md:-top-20 md:left-1/2 md:-translate-x-1/2 mt-8 md:mt-0 planet-motion-1">
+                                <FadeIn delay={1000}>
+                                    <NavButton item={items[0]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Consort - Top Right */}
+                            <div className="md:absolute md:-top-10 md:right-0 lg:right-12 mt-4 md:mt-0 planet-motion-2">
+                                <FadeIn delay={1200}>
+                                    <NavButton item={items[1]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Art - Right */}
+                            <div className="md:absolute md:top-1/2 md:-translate-y-1/2 md:right-0 lg:right-8 mt-4 md:mt-0 planet-motion-2">
+                                <FadeIn delay={1200}>
+                                    <NavButton item={items[2]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Poet - Bottom Right */}
+                            <div className="md:absolute md:-bottom-12 md:right-4 lg:right-24 mt-4 md:mt-0 planet-motion-5">
+                                <FadeIn delay={1400}>
+                                    <NavButton item={items[3]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Pearl - Bottom Center */}
+                             <div className="md:absolute md:-bottom-24 md:left-1/2 md:-translate-x-1/2 mt-4 md:mt-0 planet-motion-4">
+                                <FadeIn delay={1500}>
+                                    <NavButton item={items[5]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Labyrinth - Bottom Left */}
+                            <div className="md:absolute md:-bottom-12 md:left-4 lg:left-24 mt-4 md:mt-0 planet-motion-5">
+                                <FadeIn delay={1600}>
+                                    <NavButton item={items[6]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Atelier - Left */}
+                            <div className="md:absolute md:top-1/2 md:-translate-y-1/2 md:left-0 lg:left-8 mt-4 md:mt-0 planet-motion-6">
+                                <FadeIn delay={1800}>
+                                    <NavButton item={items[4]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                            {/* Artists - Top Left */}
+                            <div className="md:absolute md:-top-10 md:left-0 lg:left-12 mt-4 md:mt-0 planet-motion-2">
+                                <FadeIn delay={1800}>
+                                    <NavButton item={items[7]} navigate={navigate} />
+                                </FadeIn>
+                            </div>
+
+                        </div>
+                    </div>
+                    
+                    <div className="mt-12 md:mt-0 font-mono text-[10px] text-neutral-600 flex justify-end items-end relative z-20">
+                        <span>scroll_down_for_logs</span>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [page, setPage] = useState('home');
+            const [hasEntered, setHasEntered] = useState(false);
+            const { db, user, appId } = useFirebase();
+            const [galaxies, setGalaxies] = useState([]);
+
+            const addGalaxy = (text) => {
+                const id = Date.now();
+                const startX = Math.random() * 80 + 10;
+                setGalaxies(prev => [...prev, { id, text, startX }]);
+                setTimeout(() => {
+                    setGalaxies(prev => prev.filter(g => g.id !== id));
+                }, 12000); 
+            };
+
+            const navigate = (target) => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                setPage(target);
+            };
+
+            const resetToLanding = () => {
+                setHasEntered(false);
+                setPage('home');
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            };
+
+            const renderContent = () => {
+                switch (page) {
+                    case 'home':
+                        return <Home navigate={navigate} />;
+                    case 'trio':
+                        return (
+                            <SectionPage 
+                                title="the trio"
+                                subtitle="core acoustic unit"
+                                icon={<Triangle className="w-12 h-12 text-white stroke-1" />}
+                                dateLabel="members"
+                                navigate={navigate}
+                                date={
+                                    <div className="flex flex-col gap-1">
+                                        <span>ozgur kaya</span>
+                                        <span>miki piszczorowicz</span>
+                                        <span>hope cramsie</span>
+                                    </div>
+                                }
+                                metadata={[
+                                    { label: 'instrumentation', value: 'viola da gambas / theorbo' },
+                                    { label: 'focus', value: 'french-baroque' }
+                                ]}
+                                content={[]}
+                            />
+                        );
+                    case 'consort':
+                        return (
+                            <SectionPage 
+                                title="the consort"
+                                subtitle="expanded ensemble"
+                                icon={<Circle className="w-12 h-12 text-white stroke-1" />}
+                                dateLabel="members"
+                                navigate={navigate}
+                                date={
+                                    <div className="flex flex-col gap-1 text-right">
+                                        <span>anne sutton</span>
+                                        <span>otto hashmi</span>
+                                        <span>hope cramsie</span>
+                                        <span>miki piszczorowicz</span>
+                                        <span>ozgur kaya</span>
+                                    </div>
+                                }
+                                metadata={[
+                                    { 
+                                        label: 'instruments', 
+                                        value: (
+                                            <div className="flex flex-col gap-1 text-right">
+                                                <span>voice</span>
+                                                <span>recorders</span>
+                                                <span>theorbo</span>
+                                                <span>viola da gambas</span>
+                                                <span>electronics</span>
+                                            </div>
+                                        )
+                                    }
+                                ]}
+                                content={[]}
+                            />
+                        );
+                    case 'poet':
+                        return (
+                            <SectionPage 
+                                title="serpentinepoet"
+                                subtitle="the emanation"
+                                icon={<FourPointStar className="w-12 h-12 text-white stroke-1" />}
+                                date="est. 2021"
+                                navigate={navigate}
+                                metadata={[
+                                    { label: 'medium', value: 'label, publisher' },
+                                    { label: 'output', value: 'music, text' }
+                                ]}
+                                content={[]}
+                            />
+                        );
+                    case 'pearl':
+                        return <PearlExperience onExit={() => navigate('home')} />;
+                    case 'labyrinth':
+                        return (
+                            <SectionPage 
+                                title="the labyrinth"
+                                subtitle="immersive installation"
+                                icon={<LabyrinthIcon className="w-12 h-12 text-white stroke-1" />}
+                                date="est. 2025"
+                                navigate={navigate}
+                                metadata={[
+                                    { label: 'structure', value: 'nonlinear / spatial' },
+                                    { label: 'duration', value: 'infinite loop' },
+                                    { label: 'access', value: 'restricted' }
+                                ]}
+                                content={[]}
+                            />
+                        );
+                    case 'art':
+                        return (
+                            <SectionPage 
+                                title="the art"
+                                subtitle="visual archive"
+                                icon={<Square className="w-12 h-12 text-white stroke-1" />}
+                                date="est. 2021"
+                                navigate={navigate}
+                                metadata={[
+                                    { label: 'medium', value: 'photography, film, painting' },
+                                    { label: 'format', value: 'gallery' },
+                                    { label: 'artists', value: 'purdey williams, lilibet williams' }
+                                ]}
+                                content={[]}
+                            />
+                        );
+                    case 'artists':
+                        return <ArtistsPage navigate={navigate} />;
+                    case 'guestbook':
+                        return <Guestbook onExit={resetToLanding} db={db} user={user} appId={appId} addGalaxy={addGalaxy} />;
+                    case 'contact':
+                        return <Contact />;
+                    default:
+                        return <Home navigate={navigate} />;
+                }
+            };
+
+            if (!hasEntered) {
+                return <Landing onEnter={() => setHasEntered(true)} onGuestbookAccess={() => { setHasEntered(true); setPage('guestbook'); }} />;
+            }
+
+            return (
+                <div className="min-h-screen bg-[#050505] text-neutral-200 selection:bg-white selection:text-black overflow-x-hidden font-mono">
+                    <style>{`
+                        @keyframes orbit-1 {
+                            0% { transform: translate(0, 0); }
+                            25% { transform: translate(15px, 15px); }
+                            50% { transform: translate(0, 30px); }
+                            75% { transform: translate(-15px, 15px); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        @keyframes orbit-2 {
+                            0% { transform: translate(0, 0); }
+                            33% { transform: translate(-20px, 10px); }
+                            66% { transform: translate(20px, -10px); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        @keyframes orbit-3 {
+                            0% { transform: translate(0, 0); }
+                            50% { transform: translate(25px, -25px); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        @keyframes orbit-4 {
+                            0% { transform: translate(0, 0); }
+                            33% { transform: translate(15px, -15px); }
+                            66% { transform: translate(-15px, 20px); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        @keyframes orbit-5 {
+                            0% { transform: translate(0, 0); }
+                            50% { transform: translate(-30px, 0); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        @keyframes shooting-star-anim {
+                            0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; width: 0; }
+                            10% { width: 150px; }
+                            100% { transform: translateX(400px) translateY(400px) rotate(45deg); opacity: 0; width: 0; }
+                        }
+                         @keyframes galaxy-drift {
+                            0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 0.8; }
+                            100% { transform: translateY(-80vh) scale(0) rotate(90deg); opacity: 0; }
+                        }
+                    `}</style>
+                    
+                    {page !== 'pearl' && <StarField galaxies={galaxies} />}
+
+                    {page !== 'pearl' && page !== 'guestbook' && <Navigation activePage={page} navigate={navigate} onLogoClick={resetToLanding} />}
+                    
+                    <main className="relative z-10 transition-opacity duration-500">
+                        {renderContent()}
+                    </main>
+
+                    {page !== 'pearl' && page !== 'guestbook' && (
+                        <footer className="border-t border-white/10 py-8 px-4 md:px-12 mt-12 bg-black relative z-10">
+                            <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center text-xs font-mono text-neutral-600">
+                                <div className="flex space-x-4 mb-4 md:mb-0">
+                                    <span>© 2025 serpentine.iii</span>
+                                    <span>::</span>
+                                    <span>all_rights_reserved</span>
+                                </div>
+                                <div className="flex space-x-6 lowercase">
+                                    <a href="#" className="hover:text-white transition-colors">instagram</a>
+                                    <a href="#" className="hover:text-white transition-colors">soundcloud</a>
+                                    <a href="#" className="hover:text-white transition-colors">resident_advisor</a>
+                                </div>
+                            </div>
+                        </footer>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
