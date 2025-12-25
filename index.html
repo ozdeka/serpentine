@@ -64,7 +64,97 @@
     </script>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useContext, createContext } = React;
+
+        // --- Audio System Context & Provider (UPDATED FOR CUSTOM FILES) ---
+        const SoundContext = createContext(null);
+
+        const SoundProvider = ({ children }) => {
+            const [isMuted, setIsMuted] = useState(true);
+            const sounds = useRef({});
+
+            // CONFIGURATION: Change these paths to match your filenames
+            const audioConfig = {
+                drone: 'audio/drone.mp3', // Background ambient loop
+                click: 'audio/click.mp3', // Button click sound
+                hover: 'audio/hover.mp3', // Hover sound
+                open:  'audio/open.mp3'   // Page transition sound
+            };
+
+            const initAudio = () => {
+                if (Object.keys(sounds.current).length === 0) {
+                    // Initialize Audio objects
+                    try {
+                        const drone = new Audio(audioConfig.drone);
+                        drone.loop = true;
+                        drone.volume = 0.5; // Adjust volume (0.0 to 1.0)
+                        sounds.current.drone = drone;
+
+                        const click = new Audio(audioConfig.click);
+                        click.volume = 0.4;
+                        sounds.current.click = click;
+
+                        const hover = new Audio(audioConfig.hover);
+                        hover.volume = 0.2;
+                        sounds.current.hover = hover;
+
+                        const open = new Audio(audioConfig.open);
+                        open.volume = 0.5;
+                        sounds.current.open = open;
+
+                        // Try to start background music if not muted
+                        if (!isMuted) {
+                            drone.play().catch(e => console.log("Auto-play prevented, waiting for interaction"));
+                        }
+                    } catch (e) {
+                        console.error("Error loading audio files", e);
+                    }
+                }
+            };
+
+            const toggleMute = () => {
+                // Initialize on first interaction if not already done
+                if (Object.keys(sounds.current).length === 0) initAudio();
+
+                const newMuteState = !isMuted;
+                setIsMuted(newMuteState);
+
+                if (sounds.current.drone) {
+                    if (newMuteState) {
+                        sounds.current.drone.pause();
+                    } else {
+                        sounds.current.drone.play().catch(e => console.log("Playback failed", e));
+                    }
+                }
+            };
+
+            const playSound = (name) => {
+                if (isMuted) return;
+                
+                // Lazy init if sound happens before mute toggle clicked
+                if (Object.keys(sounds.current).length === 0) initAudio();
+
+                const sound = sounds.current[name];
+                if (sound) {
+                    sound.currentTime = 0; // Reset to start for rapid firing
+                    sound.play().catch(e => {
+                        // Ignore errors from rapid playback interruptions
+                    });
+                }
+            };
+
+            const playHover = () => playSound('hover');
+            const playClick = () => playSound('click');
+            const playPageOpen = () => playSound('open');
+
+            return (
+                <SoundContext.Provider value={{ isMuted, toggleMute, playHover, playClick, playPageOpen, initAudio }}>
+                    {children}
+                </SoundContext.Provider>
+            );
+        };
+
+        const useSound = () => useContext(SoundContext);
 
         // --- Firebase Initialization Helper ---
         const useFirebase = () => {
@@ -172,6 +262,12 @@
         const X = (props) => (
             <IconBase {...props}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></IconBase>
         );
+        const Volume2 = (props) => (
+            <IconBase {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></IconBase>
+        );
+        const VolumeX = (props) => (
+            <IconBase {...props}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" x2="17" y1="9" y2="15" /><line x1="17" x2="23" y1="9" y2="15" /></IconBase>
+        );
 
         // --- Application Components ---
 
@@ -225,7 +321,7 @@
             );
         };
 
-        const StarField = ({ galaxies = [] }) => {
+        const StarField = ({ galaxies = [], warpSpeed = false }) => {
             const [stars, setStars] = useState([]);
             const [lines, setLines] = useState([]);
             const [shootingStars, setShootingStars] = useState([]);
@@ -310,7 +406,17 @@
             }, []);
 
             return (
-                <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+                <div className={`fixed inset-0 pointer-events-none z-0 overflow-hidden ${warpSpeed ? 'animate-warp' : ''}`}>
+                    <style>{`
+                        @keyframes warp {
+                            0% { transform: scale(1); opacity: 1; }
+                            50% { transform: scale(1.5); opacity: 0.5; }
+                            100% { transform: scale(1); opacity: 1; }
+                        }
+                        .animate-warp {
+                            animation: warp 0.5s ease-in-out;
+                        }
+                    `}</style>
                     <svg className="absolute inset-0 w-full h-full pointer-events-none">
                         {lines.map((line) => (
                             <line 
@@ -329,11 +435,12 @@
                     {stars.map((star) => (
                         <div
                             key={star.id}
-                            className={`absolute text-white font-mono ${star.size} flex items-center justify-center`}
+                            className={`absolute text-white font-mono ${star.size} flex items-center justify-center transition-transform duration-500`}
                             style={{
                                 left: `${star.left}%`,
                                 top: `${star.top}%`,
                                 opacity: star.opacity,
+                                transform: warpSpeed ? `scale(${Math.random() * 2 + 1}) translate(${Math.random() * 10 - 5}px, ${Math.random() * 10 - 5}px)` : 'none'
                             }}
                         >
                             {star.type === 'char' ? (
@@ -388,8 +495,10 @@
 
         const Navigation = ({ activePage, navigate, onLogoClick }) => {
             const [isOpen, setIsOpen] = useState(false);
+            const { playClick, playHover } = useSound();
 
             const handleNav = (page) => {
+                playClick();
                 if (page.startsWith('http')) {
                     window.open(page, '_blank');
                     setIsOpen(false);
@@ -406,7 +515,7 @@
                 { id: 'art', label: 'the art' },
                 { id: 'artists', label: 'the artists' },
                 { id: 'poet', label: 'serpentinepoet' },
-                { id: 'https://www.serpentine-iii.myshopify.com/password', label: 'atelier' },
+                { id: 'https://serpentine-iii.myshopify.com/password', label: 'garden' },
                 { id: 'pearl', label: 'pearl' },
                 { id: 'labyrinth', label: 'the labyrinth' },
                 { id: 'guestbook', label: 'guestbook' },
@@ -417,14 +526,16 @@
                 <nav className="fixed top-0 left-0 w-full z-50 text-white">
                     <div className="relative flex justify-between items-center p-4 md:p-6 border-b border-white/20 bg-black/80 backdrop-blur-sm z-50">
                         <button 
-                            onClick={onLogoClick}
+                            onClick={() => { playClick(); onLogoClick(); }}
+                            onMouseEnter={playHover}
                             className="font-mono text-sm md:text-base tracking-widest hover:opacity-70 transition-opacity lowercase"
                         >
                             serpentine.iii
                         </button>
 
                         <button 
-                            onClick={() => setIsOpen(!isOpen)}
+                            onClick={() => { playClick(); setIsOpen(!isOpen); }}
+                            onMouseEnter={playHover}
                             className="font-mono text-xs tracking-widest hover:opacity-70 transition-opacity lowercase flex items-center gap-2"
                         >
                             <span>discover</span>
@@ -437,11 +548,12 @@
                             isOpen ? 'max-h-[500px] opacity-100 py-6' : 'max-h-0 opacity-0 py-0'
                         }`}
                     >
-                        <div className="flex flex-col items-end space-y-3 px-4 md:px-6 w-full">
+                        <div className="flex flex-col items-end space-y-3 px-4 md:px-6 w-full flex">
                             {navItems.map((item) => (
                                 <button
                                     key={item.id}
                                     onClick={() => handleNav(item.id)}
+                                    onMouseEnter={playHover}
                                     className={`font-mono text-sm tracking-widest transition-all duration-300 hover:translate-x-[-8px] ${
                                         activePage === item.id 
                                             ? 'opacity-100 text-white' 
@@ -472,33 +584,334 @@
             );
         };
 
-        // --- GUESTBOOK COMPONENT ---
-        const Guestbook = ({ onExit, db, user, appId, addGalaxy }) => {
+        const NavButton = ({ item, navigate, className = "" }) => (
+            <button
+                onClick={() => {
+                   if (item.external) {
+                       window.open(item.id, '_blank');
+                   } else {
+                       navigate(item.id);
+                   }
+                }}
+                className={`group transition-all duration-500 relative flex flex-col justify-center items-center ${className}`}
+            >
+                <div className="flex flex-col items-center gap-2">
+                    <div className="text-white opacity-100 transition-opacity group-hover:scale-110 duration-300">{item.icon}</div>
+                    <h3 className="text-xs text-white font-normal tracking-widest text-center lowercase opacity-100 transition-opacity whitespace-nowrap group-hover:text-neutral-300">{item.title}</h3>
+                </div>
+            </button>
+        );
+
+        const Landing = ({ onEnter, onGuestbookAccess }) => {
+            const [password, setPassword] = useState("");
+            const [errorMsg, setErrorMsg] = useState("");
+            const [shake, setShake] = useState(false);
+            const { initAudio, playClick, playHover, playPageOpen } = useSound();
+
+            const handleAttempt = () => {
+                const pass = password.toLowerCase().trim();
+                initAudio(); // Initialize audio context on user interaction
+                playClick();
+                
+                if (pass === "secrets") {
+                    playPageOpen();
+                    onEnter();
+                } else if (pass === "hi") {
+                    playPageOpen();
+                    onGuestbookAccess();
+                } else {
+                    const messages = [
+                        "the stars deny your request",
+                        "a serpent does not hiss at its master", 
+                        "the labyrinth has no entrance for you",
+                        "the pearl remains hidden",
+                        "static noise detected", 
+                        "your frequencies are misaligned",
+                        "gravity denies your ascent",
+                        "the moon is not in alignment",
+                        "you are detritus in the wake",
+                        "the tide has washed away your key",
+                        "a collision of errors detected",
+                        "the debris ring rejects you",
+                        "wings smashed against the deck",
+                        "too disgusted to hold you",
+                        "time is a flat circle, try again",
+                        "fiercely addressed by silence",
+                        "put it in the slurry with your woes",
+                        "moaning heifers block the path",
+                        "the dog rose has not bloomed",
+                        "flaming between emerald and blue",
+                        "a fantastic freak bruise appears",
+                        "stupid voices explode in the auditorium",
+                        "the swan mouth remains closed",
+                        "rain pours in from the wrong direction",
+                        "men owe us what we imagine",
+                        "imitate the renunciation of access",
+                        "leaking truth like a wound",
+                        "call me a scab, but you cannot pass",
+                        "nothing is owned by humans here",
+                        "reduced by attrition to small grains",
+                        "robe your parasite in things that shine"
+                    ];
+                    const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+                    setErrorMsg(randomMsg);
+                    setShake(true);
+                    setTimeout(() => setShake(false), 500);
+                    setPassword("");
+                }
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    handleAttempt();
+                }
+            };
+
+            return (
+                <div className="h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden z-50">
+                    <style>{`
+                        @keyframes spin-slow {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                        }
+                        @keyframes spin-reverse-slow {
+                            from { transform: rotate(360deg); }
+                            to { transform: rotate(0deg); }
+                        }
+                        @keyframes shooting-star-anim {
+                            0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; width: 0; }
+                            10% { width: 150px; }
+                            100% { transform: translateX(400px) translateY(400px) rotate(45deg); opacity: 0; width: 0; }
+                        }
+                        .animate-spin-slow {
+                            animation: spin-slow 60s linear infinite;
+                        }
+                        .animate-spin-reverse-slow {
+                            animation: spin-reverse-slow 60s linear infinite;
+                        }
+                    `}</style>
+                    <StarField />
+                    
+                    {/* Centering Container */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] md:w-[500px] md:h-[500px] z-0 pointer-events-none">
+                        {/* Spinning Ring - Removed Border Class */}
+                        <div className="w-full h-full rounded-full animate-spin-slow relative">
+                            {/* Icons orbiting */}
+                            
+                            {/* 1. Top (0 deg) */}
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Triangle size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 2. Top Right (~45 deg) */}
+                            <div className="absolute top-[14.6%] right-[14.6%] translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Circle size={20} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 3. Right (90 deg) */}
+                            <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Square size={20} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 4. Bottom Right (~135 deg) */}
+                            <div className="absolute bottom-[14.6%] right-[14.6%] translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><FourPointStar size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 5. Bottom (180 deg) */}
+                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><PearlIcon size={24} strokeWidth={1.5} /></div>
+                            </div>
+
+                             {/* 6. Bottom Left (~225 deg) */}
+                            <div className="absolute bottom-[14.6%] left-[14.6%] -translate-x-1/2 translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><Diamond size={20} strokeWidth={1.5} /></div>
+                            </div>
+
+                            {/* 7. Left (270 deg) */}
+                            <div className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><LabyrinthIcon size={24} strokeWidth={1.5} /></div>
+                            </div>
+                            
+                            {/* 8. Top Left (~315 deg) */}
+                             <div className="absolute top-[14.6%] left-[14.6%] -translate-x-1/2 -translate-y-1/2 text-white">
+                                <div className="animate-spin-reverse-slow"><FivePointStar size={24} strokeWidth={1.5} /></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="z-10 flex flex-col items-center gap-8 animate-in fade-in duration-1000 w-full max-w-4xl relative">
+                        <div className="flex flex-col items-center">
+                            <h1 className="font-mono text-xl md:text-2xl tracking-[0.3em] text-white lowercase relative z-10 mr-[-0.3em]">
+                                serpentine.iii
+                            </h1>
+                        </div>
+
+                        <div className="flex flex-col items-center gap-2 w-full max-w-xs">
+                            <div className={`min-h-[1.5rem] text-sm font-mono tracking-widest text-red-400 lowercase transition-opacity duration-300 text-center ${errorMsg ? 'opacity-100' : 'opacity-0'}`}>
+                                {errorMsg || "placeholder"}
+                            </div>
+
+                            <input 
+                                type="password" 
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="password"
+                                className={`bg-transparent border-b ${shake ? 'border-red-500 translate-x-1' : 'border-white/20'} outline-none text-center font-mono text-base tracking-[0.2em] text-white placeholder-neutral-400 py-2 w-48 focus:border-white transition-all duration-200 lowercase`}
+                            />
+                        </div>
+                        
+                        <button 
+                            onClick={handleAttempt}
+                            onMouseEnter={playHover}
+                            className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
+                        >
+                            <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-400 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
+                                [ access ]
+                            </span>
+                            <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const SectionPage = ({ title, subtitle, content, icon, date, dateLabel = "established", metadata, navigate }) => {
+            const { playClick, playHover } = useSound();
+            return (
+                <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 max-w-6xl mx-auto">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                        <div className="lg:col-span-3 lg:border-r border-white/10 lg:pr-8">
+                            <FadeIn delay={100}>
+                                <div className="sticky top-32">
+                                    <div className="mb-8 text-white">{icon}</div>
+                                    <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase break-words">{title}</h1>
+                                    <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">{subtitle}</p>
+                                    
+                                    <div className="space-y-4 font-mono text-xs text-neutral-500 lowercase">
+                                        <div className="flex justify-between border-b border-white/10 pb-2">
+                                            <span>{dateLabel}</span>
+                                            <span className="text-neutral-300 text-right max-w-[60%] break-words">{date}</span>
+                                        </div>
+                                        {metadata.map((meta, i) => (
+                                            <div key={i} className="flex justify-between border-b border-white/10 pb-2">
+                                                <span>{meta.label}</span>
+                                                <span className="text-neutral-300 text-right max-w-[60%] break-words">{meta.value}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="mt-12">
+                                        <button 
+                                            onClick={() => { playClick(); navigate('home'); }}
+                                            onMouseEnter={playHover}
+                                            className="w-full py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
+                                        >
+                                            [ return ]
+                                        </button>
+                                    </div>
+                                </div>
+                            </FadeIn>
+                        </div>
+
+                        <div className="lg:col-span-9">
+                            <FadeIn delay={300}>
+                                <div className="prose prose-invert prose-base max-w-none font-mono lowercase">
+                                    {content.map((paragraph, idx) => (
+                                        <p key={idx} className="text-neutral-300 font-light leading-relaxed mb-6 first-letter:text-3xl first-letter:mr-1 first-letter:font-normal">
+                                            {paragraph}
+                                        </p>
+                                    ))}
+                                </div>
+                                
+                                <div className="mt-16 pt-8 border-t border-white/10">
+                                    <h3 className="font-mono text-sm text-white mb-6 tracking-widest lowercase">:: selected_works_archive</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {[1, 2, 3, 4].map((i) => (
+                                            <div key={i} onClick={playClick} onMouseEnter={playHover} className="bg-white/5 p-4 hover:bg-white/10 transition-colors cursor-pointer group">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="font-mono text-xs text-neutral-500 lowercase">opus_00{i}</span>
+                                                    <ArrowRight size={14} className="text-neutral-500 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                                                </div>
+                                                <div className="h-24 w-full bg-neutral-900 mb-2 flex items-center justify-center overflow-hidden relative">
+                                                    <div className={`absolute inset-0 opacity-20 bg-gradient-to-tr from-neutral-800 to-transparent`} />
+                                                    <div className="w-16 h-[1px] bg-white/20 rotate-45"></div>
+                                                    <div className="w-16 h-[1px] bg-white/20 -rotate-45"></div>
+                                                </div>
+                                                <p className="text-sm text-neutral-300 lowercase">untitled performance {i}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </FadeIn>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ArtistsPage = ({ navigate }) => {
+            const { playClick, playHover } = useSound();
+            return (
+                <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 flex flex-col items-center">
+                    <FadeIn delay={100}>
+                        <div className="flex flex-col items-center max-w-2xl mx-auto text-center">
+                            <div className="mb-8 text-white"><FivePointStar size={24} /></div>
+                            <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase">the artists</h1>
+                            <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">collective members and contributors</p>
+
+                            <div className="flex flex-col gap-2 font-mono text-xs text-neutral-500 lowercase mb-12">
+                                <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
+                                    <span>origin</span>
+                                    <span className="text-neutral-300">london, uk</span>
+                                </div>
+                                <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
+                                    <span>status</span>
+                                    <span className="text-neutral-300">active</span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-4 text-neutral-300 font-light lowercase text-lg md:text-xl leading-relaxed mb-16">
+                                <span>ozgur kaya</span>
+                                <span>purdey williams</span>
+                                <span>miki piszczorowicz</span>
+                                <span>hope cramsie</span>
+                                <span>deniz dortok</span>
+                                <span>delyth field</span>
+                                <span>lydia walquist</span>
+                                <span>sofia kiviniemi</span>
+                                <span>thomas shorthouse</span>
+                                <span>otto hashmi</span>
+                                <span>anne sutton</span>
+                                <span>louis moisan</span>
+                                <span>ignacy stefanowicz</span>
+                                <span>yena gook</span>
+                            </div>
+
+                            <p className="font-mono text-xs text-neutral-300 tracking-widest lowercase mb-16">...and growing...</p>
+
+                            <button 
+                                onClick={() => { playClick(); navigate('home'); }}
+                                onMouseEnter={playHover}
+                                className="px-8 py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
+                            >
+                                [ return ]
+                            </button>
+                        </div>
+                    </FadeIn>
+                </div>
+            );
+        };
+
+        // --- GUESTBOOK COMPONENT (OFFLINE) ---
+        const Guestbook = ({ onExit, addGalaxy, triggerWarp }) => {
             const [username, setUsername] = useState("");
             const [inputUsername, setInputUsername] = useState("");
             const [messages, setMessages] = useState([]);
             const [newMessage, setNewMessage] = useState("");
             const messagesEndRef = useRef(null);
-
-            useEffect(() => {
-                if (!db || !appId || !user) return;
-
-                const q = window.firebaseModules.collection(db, 'artifacts', appId, 'public', 'data', 'guestbook');
-                
-                const unsubscribe = window.firebaseModules.onSnapshot(q, (snapshot) => {
-                    const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    msgs.sort((a, b) => {
-                        const timeA = a.timestamp ? a.timestamp.seconds : 0;
-                        const timeB = b.timestamp ? b.timestamp.seconds : 0;
-                        return timeA - timeB; 
-                    });
-                    setMessages(msgs);
-                }, (error) => {
-                    console.error("Snapshot error:", error);
-                });
-
-                return () => unsubscribe();
-            }, [db, appId, user]);
+            const { playClick, playHover } = useSound();
 
             useEffect(() => {
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -506,28 +919,25 @@
 
             const handleUsernameSubmit = (e) => {
                 if (e.key === 'Enter' && inputUsername.trim()) {
+                    playClick();
                     setUsername(inputUsername.trim());
                 }
             };
 
-            const sendMessage = async (e) => {
-                if ((e.key === 'Enter' || e.type === 'click') && newMessage.trim() && db) {
-                    try {
-                        const { collection, addDoc, serverTimestamp } = window.firebaseModules;
-                        
-                        // Fire "galaxy" animation
-                        addGalaxy(newMessage.trim());
-
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'guestbook'), {
-                            user: username,
-                            text: newMessage.trim(),
-                            timestamp: serverTimestamp()
-                        });
-                        setNewMessage("");
-                    } catch (err) {
-                        console.error("Error sending message:", err);
-                        alert("Error sending message. Please try again.");
-                    }
+            const sendMessage = (e) => {
+                if ((e.key === 'Enter' || e.type === 'click') && newMessage.trim()) {
+                    playClick();
+                    const msg = {
+                        id: Date.now(),
+                        user: username,
+                        text: newMessage.trim(),
+                        timestamp: new Date()
+                    };
+                    
+                    setMessages(prev => [...prev, msg]);
+                    addGalaxy(newMessage.trim());
+                    triggerWarp();
+                    setNewMessage("");
                 }
             };
 
@@ -541,11 +951,12 @@
                             onChange={(e) => setInputUsername(e.target.value)}
                             onKeyDown={handleUsernameSubmit}
                             placeholder="alias"
-                            className="bg-transparent border-b border-white/30 text-center font-mono text-lg text-white placeholder-white outline-none pb-2 w-48 focus:border-white transition-all lowercase"
+                            className="bg-transparent border-b border-white/30 text-center font-mono text-lg text-white placeholder-neutral-600 outline-none pb-2 w-48 focus:border-white transition-all lowercase"
                             autoFocus
                         />
                         <button 
-                            onClick={() => setUsername(inputUsername)} 
+                            onClick={() => { playClick(); setUsername(inputUsername); }} 
+                            onMouseEnter={playHover}
                             className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center mt-8"
                         >
                             <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-300 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
@@ -560,14 +971,25 @@
             return (
                 <div className="flex flex-col h-screen w-full pt-12 pb-8 px-4 md:px-12 relative z-20 max-w-4xl mx-auto">
                      <div className="absolute top-8 right-0 pr-4 md:pr-0">
-                        <button onClick={onExit} className="text-[10px] text-red-400 hover:text-red-300 font-mono tracking-widest lowercase transition-opacity opacity-70 hover:opacity-100">[ disconnect ]</button>
+                        <button 
+                            onClick={() => { playClick(); onExit(); }} 
+                            onMouseEnter={playHover}
+                            className="text-base md:text-lg font-mono tracking-widest lowercase text-red-500 hover:text-red-400 transition-colors border border-red-500/50 hover:border-red-400 px-6 py-2 bg-red-900/10 backdrop-blur-sm"
+                        >
+                            [ disconnect ]
+                        </button>
                     </div>
 
                     <div className="flex-grow overflow-y-auto mb-4 pr-2 space-y-4 pt-12">
+                        {messages.length === 0 && (
+                            <div className="flex flex-col items-center justify-center h-full text-white/30 font-mono text-sm lowercase italic">
+                                <span>no traces yet...</span>
+                            </div>
+                        )}
                         {messages.map((msg) => (
                             <div key={msg.id} className="flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <span className="text-[10px] text-neutral-400 font-mono lowercase mb-1">
-                                    {msg.user} :: {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                                    {msg.user} :: {msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                 </span>
                                 <span className="text-sm md:text-base text-white font-mono lowercase bg-white/5 p-3 border-l border-white/20">
                                     {msg.text}
@@ -589,7 +1011,8 @@
                         />
                         <button 
                             onClick={sendMessage}
-                            className="group relative px-6 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
+                            onMouseEnter={playHover}
+                            className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
                         >
                             <span className="relative z-10 font-mono text-sm tracking-[0.2em] text-neutral-300 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
                                 [ send ]
@@ -606,6 +1029,7 @@
             const [storyKey, setStoryKey] = useState(null);
             const [currentTime, setCurrentTime] = useState("");
             const [typedLines, setTypedLines] = useState([]);
+            const { playClick, playHover } = useSound();
 
             const stories = {
                 collision: {
@@ -710,7 +1134,8 @@
                       />
                       <p className="text-[#888888] text-base mb-16 lowercase border-b-2 border-[#e0e0e0] pb-2 inline-block">by purdey williams</p>
                       <button 
-                        onClick={() => setScreen('menu')} 
+                        onClick={() => { playClick(); setScreen('menu'); }}
+                        onMouseEnter={playHover}
                         className="group relative px-8 py-2 transition-all duration-500 bg-transparent"
                       >
                         <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-400 group-hover:text-black transition-colors duration-500 lowercase">
@@ -729,7 +1154,8 @@
                       </div>
                       <ul className="w-full max-w-lg list-none">
                         {Object.keys(stories).map((key, i) => (
-                          <li key={key} onClick={() => { setStoryKey(key); setScreen('content'); }} 
+                          <li key={key} onClick={() => { playClick(); setStoryKey(key); setScreen('content'); }} 
+                              onMouseEnter={playHover}
                               className="p-4 border-b border-[#333333] flex flex-col items-center justify-center cursor-pointer hover:bg-white/15 transition-colors bg-black/20 backdrop-blur-sm mb-2">
                             <span className="font-bold text-base text-white lowercase">0{i+1}. {stories[key].title}</span>
                             <span className="text-[#888888] text-xs text-center lowercase">read file</span>
@@ -737,10 +1163,16 @@
                         ))}
                       </ul>
                       <div className="flex gap-4 mt-16 w-full max-w-lg justify-between">
-                         <button onClick={() => setScreen('intro')} className="bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase flex-1 text-sm">
+                         <button 
+                            onClick={() => { playClick(); setScreen('intro'); }} 
+                            onMouseEnter={playHover}
+                            className="bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase flex-1 text-sm">
                           &lt; system_reboot &gt;
                         </button>
-                        <button onClick={onExit} className="bg-black/50 backdrop-blur-sm border border-[#ff6666] text-[#ff6666] px-6 py-2 hover:bg-[#ff6666] hover:text-black transition-all lowercase flex-1 text-sm">
+                        <button 
+                            onClick={() => { playClick(); onExit(); }} 
+                            onMouseEnter={playHover}
+                            className="bg-black/50 backdrop-blur-sm border border-[#ff6666] text-[#ff6666] px-6 py-2 hover:bg-[#ff6666] hover:text-black transition-all lowercase flex-1 text-sm">
                           &lt; exit_pearl &gt;
                         </button>
                       </div>
@@ -761,7 +1193,10 @@
                             </div>
                          ))}
                       </div>
-                      <button onClick={() => setScreen('menu')} className="mt-16 bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase text-sm">
+                      <button 
+                        onClick={() => { playClick(); setScreen('menu'); }} 
+                        onMouseEnter={playHover}
+                        className="mt-16 bg-black/50 backdrop-blur-sm border border-[#e0e0e0] text-[#e0e0e0] px-6 py-2 hover:bg-[#e0e0e0] hover:text-black transition-all lowercase text-sm">
                         &lt; return &gt;
                       </button>
                     </div>
@@ -770,323 +1205,19 @@
             );
         };
 
-        const NavButton = ({ item, navigate, className = "" }) => (
-            <button
-                onClick={() => {
-                   if (item.external) {
-                       window.open(item.id, '_blank');
-                   } else {
-                       navigate(item.id);
-                   }
-                }}
-                // Removed borders and background-color, keeping hover effects subtle or minimal as requested
-                className={`group transition-all duration-500 relative flex flex-col justify-center items-center ${className}`}
-            >
-                <div className="flex flex-col items-center gap-2">
-                    <div className="text-white opacity-100 transition-opacity group-hover:scale-110 duration-300">{item.icon}</div>
-                    <h3 className="text-xs text-white font-normal tracking-widest text-center lowercase opacity-100 transition-opacity whitespace-nowrap group-hover:text-neutral-300">{item.title}</h3>
-                </div>
-            </button>
-        );
-
-        const Landing = ({ onEnter, onGuestbookAccess }) => {
-            const [password, setPassword] = useState("");
-            const [errorMsg, setErrorMsg] = useState("");
-            const [shake, setShake] = useState(false);
-
-            const handleAttempt = () => {
-                const pass = password.toLowerCase().trim();
-                if (pass === "secrets") {
-                    onEnter();
-                } else if (pass === "hi") {
-                    onGuestbookAccess();
-                } else {
-                    const messages = [
-                        "the stars deny your request",
-                        "a serpent does not hiss at its master", 
-                        "the labyrinth has no entrance for you",
-                        "the pearl remains hidden",
-                        "static noise detected", 
-                        "your frequencies are misaligned",
-                        "gravity denies your ascent",
-                        "the moon is not in alignment",
-                        "you are detritus in the wake",
-                        "the tide has washed away your key",
-                        "a collision of errors detected",
-                        "the debris ring rejects you",
-                        "wings smashed against the deck",
-                        "too disgusted to hold you",
-                        "time is a flat circle, try again",
-                        "fiercely addressed by silence",
-                        "put it in the slurry with your woes",
-                        "moaning heifers block the path",
-                        "the dog rose has not bloomed",
-                        "flaming between emerald and blue",
-                        "a fantastic freak bruise appears",
-                        "stupid voices explode in the auditorium",
-                        "the swan mouth remains closed",
-                        "rain pours in from the wrong direction",
-                        "men owe us what we imagine",
-                        "imitate the renunciation of access",
-                        "leaking truth like a wound",
-                        "call me a scab, but you cannot pass",
-                        "nothing is owned by humans here",
-                        "reduced by attrition to small grains",
-                        "robe your parasite in things that shine"
-                    ];
-                    const randomMsg = messages[Math.floor(Math.random() * messages.length)];
-                    setErrorMsg(randomMsg);
-                    setShake(true);
-                    setTimeout(() => setShake(false), 500);
-                    setPassword("");
-                }
-            };
-
-            const handleKeyDown = (e) => {
-                if (e.key === 'Enter') {
-                    handleAttempt();
-                }
-            };
-
-            return (
-                <div className="h-screen w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden z-50">
-                    <style>{`
-                        @keyframes spin-slow {
-                            from { transform: rotate(0deg); }
-                            to { transform: rotate(360deg); }
-                        }
-                        @keyframes spin-reverse-slow {
-                            from { transform: rotate(360deg); }
-                            to { transform: rotate(0deg); }
-                        }
-                        @keyframes shooting-star-anim {
-                            0% { transform: translateX(0) translateY(0) rotate(45deg); opacity: 1; width: 0; }
-                            10% { width: 150px; }
-                            100% { transform: translateX(400px) translateY(400px) rotate(45deg); opacity: 0; width: 0; }
-                        }
-                        .animate-spin-slow {
-                            animation: spin-slow 60s linear infinite;
-                        }
-                        .animate-spin-reverse-slow {
-                            animation: spin-reverse-slow 60s linear infinite;
-                        }
-                    `}</style>
-                    <StarField />
-                    
-                    {/* Centering Container */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] md:w-[500px] md:h-[500px] z-0 pointer-events-none">
-                        {/* Spinning Ring */}
-                        <div className="w-full h-full rounded-full animate-spin-slow relative">
-                            {/* Icons orbiting */}
-                            
-                            {/* 1. Top (0 deg) */}
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><Triangle size={24} strokeWidth={1.5} /></div>
-                            </div>
-                            
-                            {/* 2. Top Right (~45 deg) */}
-                            <div className="absolute top-[14.6%] right-[14.6%] translate-x-1/2 -translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><Circle size={20} strokeWidth={1.5} /></div>
-                            </div>
-                            
-                            {/* 3. Right (90 deg) */}
-                            <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><Square size={20} strokeWidth={1.5} /></div>
-                            </div>
-                            
-                            {/* 4. Bottom Right (~135 deg) */}
-                            <div className="absolute bottom-[14.6%] right-[14.6%] translate-x-1/2 translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><FourPointStar size={24} strokeWidth={1.5} /></div>
-                            </div>
-                            
-                            {/* 5. Bottom (180 deg) */}
-                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><PearlIcon size={24} strokeWidth={1.5} /></div>
-                            </div>
-
-                             {/* 6. Bottom Left (~225 deg) */}
-                            <div className="absolute bottom-[14.6%] left-[14.6%] -translate-x-1/2 translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><Diamond size={20} strokeWidth={1.5} /></div>
-                            </div>
-
-                            {/* 7. Left (270 deg) */}
-                            <div className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><LabyrinthIcon size={24} strokeWidth={1.5} /></div>
-                            </div>
-                            
-                            {/* 8. Top Left (~315 deg) */}
-                             <div className="absolute top-[14.6%] left-[14.6%] -translate-x-1/2 -translate-y-1/2 text-white">
-                                <div className="animate-spin-reverse-slow"><FivePointStar size={24} strokeWidth={1.5} /></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="z-10 flex flex-col items-center gap-8 animate-in fade-in duration-1000 w-full max-w-4xl relative">
-                        <div className="flex flex-col items-center">
-                            <h1 className="font-mono text-xl md:text-2xl tracking-[0.3em] text-white lowercase relative z-10 mr-[-0.3em]">
-                                serpentine.iii
-                            </h1>
-                        </div>
-
-                        <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-                            <div className={`min-h-[1.5rem] text-sm font-mono tracking-widest text-red-400 lowercase transition-opacity duration-300 text-center ${errorMsg ? 'opacity-100' : 'opacity-0'}`}>
-                                {errorMsg || "placeholder"}
-                            </div>
-
-                            <input 
-                                type="password" 
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="password"
-                                className={`bg-transparent border-b ${shake ? 'border-red-500 translate-x-1' : 'border-white/20'} outline-none text-center font-mono text-base tracking-[0.2em] text-white placeholder-neutral-400 py-2 w-48 focus:border-white transition-all duration-200 lowercase`}
-                            />
-                        </div>
-                        
-                        <button 
-                            onClick={handleAttempt}
-                            className="group relative px-8 py-2 transition-all duration-500 bg-transparent flex items-center justify-center"
-                        >
-                            <span className="relative z-10 font-mono text-base tracking-[0.2em] text-neutral-400 group-hover:text-black transition-colors duration-500 lowercase mr-[-0.2em]">
-                                [ access ]
-                            </span>
-                            <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left ease-out"></div>
-                        </button>
-                    </div>
-                </div>
-            );
-        };
-
-        const SectionPage = ({ title, subtitle, content, icon, date, dateLabel = "established", metadata, navigate }) => (
-            <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 max-w-6xl mx-auto">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                    <div className="lg:col-span-3 lg:border-r border-white/10 lg:pr-8">
-                        <FadeIn delay={100}>
-                            <div className="sticky top-32">
-                                <div className="mb-8 text-white">{icon}</div>
-                                <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase break-words">{title}</h1>
-                                <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">{subtitle}</p>
-                                
-                                <div className="space-y-4 font-mono text-xs text-neutral-500 lowercase">
-                                    <div className="flex justify-between border-b border-white/10 pb-2">
-                                        <span>{dateLabel}</span>
-                                        <span className="text-neutral-300 text-right max-w-[60%] break-words">{date}</span>
-                                    </div>
-                                    {metadata.map((meta, i) => (
-                                        <div key={i} className="flex justify-between border-b border-white/10 pb-2">
-                                            <span>{meta.label}</span>
-                                            <span className="text-neutral-300 text-right max-w-[60%] break-words">{meta.value}</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="mt-12">
-                                    <button 
-                                        onClick={() => navigate('home')}
-                                        className="w-full py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
-                                    >
-                                        [ return ]
-                                    </button>
-                                </div>
-                            </div>
-                        </FadeIn>
-                    </div>
-
-                    <div className="lg:col-span-9">
-                        <FadeIn delay={300}>
-                            <div className="prose prose-invert prose-base max-w-none font-mono lowercase">
-                                {content.map((paragraph, idx) => (
-                                    <p key={idx} className="text-neutral-300 font-light leading-relaxed mb-6 first-letter:text-3xl first-letter:mr-1 first-letter:font-normal">
-                                        {paragraph}
-                                    </p>
-                                ))}
-                            </div>
-                            
-                            <div className="mt-16 pt-8 border-t border-white/10">
-                                <h3 className="font-mono text-sm text-white mb-6 tracking-widest lowercase">:: selected_works_archive</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {[1, 2, 3, 4].map((i) => (
-                                        <div key={i} className="bg-white/5 p-4 hover:bg-white/10 transition-colors cursor-pointer group">
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="font-mono text-xs text-neutral-500 lowercase">opus_00{i}</span>
-                                                <ArrowRight size={14} className="text-neutral-500 group-hover:text-white group-hover:translate-x-1 transition-all" />
-                                            </div>
-                                            <div className="h-24 w-full bg-neutral-900 mb-2 flex items-center justify-center overflow-hidden relative">
-                                                <div className={`absolute inset-0 opacity-20 bg-gradient-to-tr from-neutral-800 to-transparent`} />
-                                                <div className="w-16 h-[1px] bg-white/20 rotate-45"></div>
-                                                <div className="w-16 h-[1px] bg-white/20 -rotate-45"></div>
-                                            </div>
-                                            <p className="text-sm text-neutral-300 lowercase">untitled performance {i}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </FadeIn>
-                    </div>
-                </div>
-            </div>
-        );
-
-        const ArtistsPage = ({ navigate }) => (
-            <div className="min-h-screen pt-32 pb-12 px-4 md:px-12 flex flex-col items-center">
-                <FadeIn delay={100}>
-                    <div className="flex flex-col items-center max-w-2xl mx-auto text-center">
-                        <div className="mb-8 text-white"><FivePointStar size={24} /></div>
-                        <h1 className="text-3xl md:text-4xl font-light text-white mb-2 tracking-tighter lowercase">the artists</h1>
-                        <p className="font-mono text-xs text-neutral-400 mb-8 tracking-widest lowercase">collective members and contributors</p>
-
-                        <div className="flex flex-col gap-2 font-mono text-xs text-neutral-500 lowercase mb-12">
-                            <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
-                                <span>origin</span>
-                                <span className="text-neutral-300">london, uk</span>
-                            </div>
-                            <div className="flex justify-center gap-4 border-b border-white/10 pb-2">
-                                <span>status</span>
-                                <span className="text-neutral-300">active</span>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col gap-4 text-neutral-300 font-light lowercase text-lg md:text-xl leading-relaxed mb-16">
-                            <span>ozgur kaya</span>
-                            <span>purdey williams</span>
-                            <span>miki piszczorowicz</span>
-                            <span>hope cramsie</span>
-                            <span>deniz dortok</span>
-                            <span>delyth field</span>
-                            <span>lydia walquist</span>
-                            <span>sofia kiviniemi</span>
-                            <span>thomas shorthouse</span>
-                            <span>otto hashmi</span>
-                            <span>anne sutton</span>
-                            <span>louis moisan</span>
-                            <span>ignacy stefanowicz</span>
-                            <span>yena gook</span>
-                        </div>
-
-                        <p className="font-mono text-xs text-neutral-300 tracking-widest lowercase mb-16">...and growing...</p>
-
-                        <button 
-                            onClick={() => navigate('home')}
-                            className="px-8 py-3 border border-white/20 hover:bg-white hover:text-black hover:border-transparent transition-all duration-300 text-xs font-mono lowercase tracking-widest"
-                        >
-                            [ return ]
-                        </button>
-                    </div>
-                </FadeIn>
-            </div>
-        );
-
         const Home = ({ navigate }) => {
             const items = [
                 { id: 'trio', title: 'the trio', icon: <Triangle size={14} /> },
                 { id: 'consort', title: 'the consort', icon: <Circle size={14} /> },
                 { id: 'art', title: 'the art', icon: <Square size={14} /> },
                 { id: 'poet', title: 'serpentinepoet', icon: <FourPointStar size={14} /> },
-                { id: 'https://www.serpentine-iii.myshopify.com/password', title: 'atelier', icon: <Diamond size={14} />, external: true },
+                { id: 'https://serpentine-iii.myshopify.com/password', title: 'garden', icon: <Diamond size={14} />, external: true },
                 { id: 'pearl', title: 'pearl', icon: <PearlIcon size={14} /> },
                 { id: 'labyrinth', title: 'the labyrinth', icon: <LabyrinthIcon size={14} /> },
                 { id: 'artists', title: 'the artists', icon: <FivePointStar size={14} /> }
             ];
+
+            const { playClick, playHover } = useSound();
 
             return (
                 <div className="min-h-screen pt-24 pb-12 px-4 md:px-12 flex flex-col justify-between overflow-hidden">
@@ -1191,6 +1322,7 @@
             const [hasEntered, setHasEntered] = useState(false);
             const { db, user, appId } = useFirebase();
             const [galaxies, setGalaxies] = useState([]);
+            const { playPageOpen } = useSound();
 
             const addGalaxy = (text) => {
                 const id = Date.now();
@@ -1201,12 +1333,21 @@
                 }, 12000); 
             };
 
+            const triggerWarp = () => {
+                 setGalaxies(prev => [...prev, {id: Date.now() + 'warp', text: '', startX: 50, isWarp: true}]);
+                 setTimeout(() => {
+                    setGalaxies(prev => prev.filter(g => !g.isWarp));
+                 }, 500);
+            };
+
             const navigate = (target) => {
+                playPageOpen();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 setPage(target);
             };
 
             const resetToLanding = () => {
+                playPageOpen();
                 setHasEntered(false);
                 setPage('home');
                 window.scrollTo({ top: 0, behavior: 'instant' });
@@ -1324,7 +1465,7 @@
                     case 'artists':
                         return <ArtistsPage navigate={navigate} />;
                     case 'guestbook':
-                        return <Guestbook onExit={resetToLanding} db={db} user={user} appId={appId} addGalaxy={addGalaxy} />;
+                        return <Guestbook onExit={resetToLanding} db={db} user={user} appId={appId} addGalaxy={addGalaxy} triggerWarp={triggerWarp} />;
                     case 'contact':
                         return <Contact />;
                     default:
@@ -1379,13 +1520,27 @@
                         }
                     `}</style>
                     
-                    {page !== 'pearl' && <StarField galaxies={galaxies} />}
+                    {page !== 'pearl' && <StarField galaxies={galaxies} warpSpeed={galaxies.some(g => g.isWarp)} />}
 
                     {page !== 'pearl' && page !== 'guestbook' && <Navigation activePage={page} navigate={navigate} onLogoClick={resetToLanding} />}
                     
                     <main className="relative z-10 transition-opacity duration-500">
                         {renderContent()}
                     </main>
+
+                    {/* Speaker Button */}
+                     <div className="fixed bottom-8 right-8 z-50">
+                        <SoundContext.Consumer>
+                            {({ isMuted, toggleMute }) => (
+                                <button 
+                                    onClick={toggleMute}
+                                    className="text-white hover:text-white/70 transition-colors"
+                                >
+                                    {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                                </button>
+                            )}
+                        </SoundContext.Consumer>
+                    </div>
 
                     {page !== 'pearl' && page !== 'guestbook' && (
                         <footer className="border-t border-white/10 py-8 px-4 md:px-12 mt-12 bg-black relative z-10">
@@ -1408,7 +1563,11 @@
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(
+            <SoundProvider>
+                <App />
+            </SoundProvider>
+        );
     </script>
 </body>
 </html>
